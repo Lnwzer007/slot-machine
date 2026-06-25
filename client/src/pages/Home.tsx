@@ -5,7 +5,12 @@ import PlayerDashboard from '@/components/PlayerDashboard';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
-const API_URL = 'https://script.google.com/macros/s/AKfycbwpS3Aw4RUFqwSI3NZ0EhYbCyvOrQ7CYs1rqnto3CTlvU5fyPbBlbKoZXceTKW_tA27hQ/exec';
+// Original API URL
+const ORIGINAL_API_URL = 'https://script.google.com/macros/s/AKfycbwpS3Aw4RUFqwSI3NZ0EhYbCyvOrQ7CYs1rqnto3CTlvU5fyPbBlbKoZXceTKW_tA27hQ/exec';
+
+// CORS proxy to handle cross-origin requests
+const CORS_PROXY = 'https://cors-anywhere.herokuapp.com/';
+const API_URL = CORS_PROXY + ORIGINAL_API_URL;
 
 interface GameConfig {
   BASE_BET?: number;
@@ -38,16 +43,43 @@ export default function Home() {
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        const response = await fetch(`${API_URL}?action=getConfig`);
+        const response = await fetch(`${API_URL}?action=getConfig`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const result = await response.json();
         if (result.success && result.config) {
           setGameConfig(result.config);
           if (result.config.SYSTEM_MAINTENANCE) {
             toast.error('System is under maintenance');
           }
+        } else {
+          console.warn('Config response not successful:', result);
+          // Use default config if API fails
+          setGameConfig({
+            BASE_BET: 10,
+            MAX_BET: 500,
+            JACKPOT_MULTIPLIER: 500,
+            SYSTEM_MAINTENANCE: false,
+          });
         }
       } catch (error) {
         console.error('Failed to load config:', error);
+        // Use default config if API fails
+        setGameConfig({
+          BASE_BET: 10,
+          MAX_BET: 500,
+          JACKPOT_MULTIPLIER: 500,
+          SYSTEM_MAINTENANCE: false,
+        });
+        toast.warning('Using default game settings (API unavailable)');
       }
     };
     loadConfig();
@@ -80,7 +112,7 @@ export default function Home() {
     }
   };
 
-  if (gameConfig.SYSTEM_MAINTENANCE) {
+  if (gameConfig.SYSTEM_MAINTENANCE === true) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-dark-bg">
         <div className="text-center">

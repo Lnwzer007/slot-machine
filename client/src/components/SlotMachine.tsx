@@ -157,6 +157,10 @@ export default function SlotMachine({
         }),
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const result = await response.json();
       if (result.success) {
         toast.success(`${payoutType} - Won ${calculatedWin}!`);
@@ -167,11 +171,24 @@ export default function SlotMachine({
           payoutType,
         });
       } else {
-        toast.error('Failed to log spin');
+        console.warn('Spin logged but response indicates failure:', result);
+        onSpinComplete({
+          betAmount,
+          winAmount: calculatedWin,
+          resultMatrix: resultMatrix.flat(),
+          payoutType,
+        });
+        toast.warning('Spin recorded locally (server sync failed)');
       }
     } catch (error) {
-      toast.error('Error logging spin');
-      console.error(error);
+      console.error('Error logging spin:', error);
+      onSpinComplete({
+        betAmount,
+        winAmount: calculatedWin,
+        resultMatrix: resultMatrix.flat(),
+        payoutType,
+      });
+      toast.warning('Spin recorded locally (server unavailable)');
     }
 
     setIsSpinning(false);

@@ -8,6 +8,34 @@ interface LoginFormProps {
   onLoginSuccess: (playerData: any) => void;
 }
 
+// Demo player data for testing
+const DEMO_PLAYERS: Record<string, any> = {
+  P001: {
+    'Player ID': 'P001',
+    Username: 'Player1',
+    'Current Credits': 1000,
+    'Total Spins': 50,
+    'Total Wins': 15,
+    'Last Active': new Date().toISOString(),
+  },
+  P002: {
+    'Player ID': 'P002',
+    Username: 'Player2',
+    'Current Credits': 500,
+    'Total Spins': 20,
+    'Total Wins': 5,
+    'Last Active': new Date().toISOString(),
+  },
+  P003: {
+    'Player ID': 'P003',
+    Username: 'Player3',
+    'Current Credits': 2000,
+    'Total Spins': 100,
+    'Total Wins': 30,
+    'Last Active': new Date().toISOString(),
+  },
+};
+
 export default function LoginForm({ apiUrl, onLoginSuccess }: LoginFormProps) {
   const [playerId, setPlayerId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -23,18 +51,40 @@ export default function LoginForm({ apiUrl, onLoginSuccess }: LoginFormProps) {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${apiUrl}?action=getPlayerData&playerId=${playerId}`);
-      const result = await response.json();
-
-      if (result.success && result.playerData) {
-        toast.success(`Welcome, ${result.playerData.Username}!`);
-        onLoginSuccess(result.playerData);
+      // First, try to fetch from API
+      const response = await fetch(`${apiUrl}?action=getPlayerData&playerId=${playerId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.playerData) {
+          toast.success(`Welcome, ${result.playerData.Username}!`);
+          onLoginSuccess(result.playerData);
+          return;
+        }
+      }
+      
+      // Fallback to demo data if API fails
+      if (DEMO_PLAYERS[playerId]) {
+        toast.success(`Welcome, ${DEMO_PLAYERS[playerId].Username}! (Demo Mode)`);
+        onLoginSuccess(DEMO_PLAYERS[playerId]);
       } else {
-        toast.error('Player not found');
+        toast.error('Player not found. Try P001, P002, or P003');
       }
     } catch (error) {
-      toast.error('Failed to login');
-      console.error(error);
+      console.error('Login error:', error);
+      
+      // Fallback to demo data on network error
+      if (DEMO_PLAYERS[playerId]) {
+        toast.success(`Welcome, ${DEMO_PLAYERS[playerId].Username}! (Demo Mode - Offline)`);
+        onLoginSuccess(DEMO_PLAYERS[playerId]);
+      } else {
+        toast.error('Failed to connect. Try P001, P002, or P003 for demo play');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -80,7 +130,10 @@ export default function LoginForm({ apiUrl, onLoginSuccess }: LoginFormProps) {
         </form>
 
         <p className="text-center text-xs text-muted-foreground mt-6">
-          Try P001, P002, or P003 to get started
+          Demo accounts: P001, P002, or P003
+        </p>
+        <p className="text-center text-xs text-muted-foreground mt-2">
+          Works in offline mode with demo data
         </p>
       </div>
     </div>
