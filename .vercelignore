@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env.local
+.env.*.local
+node_modules
+pnpm-lock.yaml
+.manus-logs
+.prettierignore
+.prettierrc
+ideas.md
+SETUP_GUIDE.md
+apps_script_backend.gs
+apps_script_deployment_instructions.md
