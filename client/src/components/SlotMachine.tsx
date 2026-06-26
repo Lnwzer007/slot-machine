@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 
 interface SlotMachineProps {
@@ -9,14 +10,21 @@ interface SlotMachineProps {
   onSpinComplete: (result: any) => void;
 }
 
-const SYMBOLS = ['7', 'CHERRY', 'BELL', 'BAR', 'GOLD'];
+const SYMBOLS = ['🍒', '🔔', '🍀', '💎', '7️⃣', '🎰'];
 const PAYOUTS: Record<string, number> = {
-  '777': 500,
-  'CHERRYCHERRYCHERRY': 200,
-  'BELLBELLBELL': 150,
-  'BARBARBAR': 100,
-  'GOLDGOLDGOLD': 300,
+  '🍒🍒🍒': 50,
+  '🔔🔔🔔': 100,
+  '🍀🍀🍀': 150,
+  '💎💎💎': 300,
+  '7️⃣7️⃣7️⃣': 500,
+  '🎰🎰🎰': 200,
 };
+
+interface ReelState {
+  symbols: string[];
+  position: number;
+  spinning: boolean;
+}
 
 export default function SlotMachine({
   playerId,
@@ -24,44 +32,96 @@ export default function SlotMachine({
   apiUrl,
   onSpinComplete,
 }: SlotMachineProps) {
-  const [reels, setReels] = useState([
-    { result: '7', spinning: false },
-    { result: 'CHERRY', spinning: false },
-    { result: 'BELL', spinning: false },
+  const [reels, setReels] = useState<ReelState[]>([
+    { symbols: SYMBOLS, position: 0, spinning: false },
+    { symbols: SYMBOLS, position: 0, spinning: false },
+    { symbols: SYMBOLS, position: 0, spinning: false },
   ]);
-  const [isSpinning, setIsSpinning] = useState(false);
-  const [betAmount, setBetAmount] = useState(10);
-  const [lastResult, setLastResult] = useState<string>('');
 
-  const canSpin = playerCredits >= betAmount && !isSpinning;
+  const [betAmount, setBetAmount] = useState('10');
+  const [isSpinning, setIsSpinning] = useState(false);
+  const [lastResult, setLastResult] = useState<string>('');
+  const [lastWin, setLastWin] = useState(0);
+  const reelRefs = useRef<(HTMLDivElement | null)[]>([null, null, null]);
+
+  const canSpin = playerCredits >= parseInt(betAmount || '0') && !isSpinning && parseInt(betAmount || '0') > 0;
 
   const spinReels = async () => {
     if (!canSpin) {
-      toast.error('Insufficient credits');
+      if (parseInt(betAmount || '0') <= 0) {
+        toast.error('Bet amount must be greater than 0');
+      } else {
+        toast.error('Insufficient credits');
+      }
       return;
     }
 
+    const bet = parseInt(betAmount);
     setIsSpinning(true);
     setLastResult('');
+    setLastWin(0);
 
-    // Start spinning animation
-    const spinningReels = reels.map(() => ({ result: '', spinning: true }));
-    setReels(spinningReels);
+    // Generate random final positions for each reel
+    const finalPositions = [
+      Math.floor(Math.random() * SYMBOLS.length),
+      Math.floor(Math.random() * SYMBOLS.length),
+      Math.floor(Math.random() * SYMBOLS.length),
+    ];
 
-    // Simulate spinning duration (3 seconds)
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // Animate each reel spinning
+    const spinDuration = 3000; // 3 seconds
+    const startTime = Date.now();
 
-    // Generate results
-    const results = reels.map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
-    const resultKey = results.join('');
-    const winAmount = PAYOUTS[resultKey] || 0;
-    const payoutType = winAmount > 0 ? `WIN: ${winAmount}` : 'NO WIN';
+    const animateSpin = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / spinDuration, 1);
 
-    // Stop spinning with results
-    setReels(results.map((result) => ({ result, spinning: false })));
-    setLastResult(payoutType);
+      // Easing function for smooth deceleration
+      const easeOut = 1 - Math.pow(1 - progress, 3);
 
-    // Log spin to API
+      const newReels = reels.map((reel, idx) => {
+        // Spin multiple times then land on final position
+        const spins = 5; // Number of full rotations
+        const totalRotations = spins + easeOut;
+        const position = (finalPositions[idx] + totalRotations * SYMBOLS.length) % SYMBOLS.length;
+
+        return {
+          ...reel,
+          position: Math.floor(position),
+          spinning: progress < 1,
+        };
+      });
+
+      setReels(newReels);
+
+      if (progress < 1) {
+        requestAnimationFrame(animateSpin);
+      } else {
+        // Spin complete - check results
+        const resultSymbols = finalPositions.map((pos) => SYMBOLS[pos]);
+        const resultKey = resultSymbols.join('');
+        const winAmount = PAYOUTS[resultKey] || 0;
+
+        setLastResult(resultSymbols.join(' '));
+        setLastWin(winAmount);
+
+        if (winAmount > 0) {
+          toast.success(`WIN! ${winAmount} credits!`);
+        } else {
+          toast.info('No match');
+        }
+
+        // Log to Google Sheets
+        logSpinToSheet(bet, winAmount, resultSymbols);
+
+        setIsSpinning(false);
+      }
+    };
+
+    requestAnimationFrame(animateSpin);
+  };
+
+  const logSpinToSheet = async (betAmount: number, winAmount: number, resultMatrix: string[]) => {
     try {
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -71,36 +131,33 @@ export default function SlotMachine({
           playerId,
           betAmount,
           winAmount,
-          resultMatrix: results,
-          payoutType,
+          resultMatrix,
+          payoutType: winAmount > 0 ? `WIN: ${winAmount}` : 'NO WIN',
+          timestamp: new Date().toISOString(),
         }),
       });
 
       if (response.ok) {
         const result = await response.json();
         if (result.success) {
-          if (winAmount > 0) {
-            toast.success(`${payoutType}!`);
-          }
           onSpinComplete({
             betAmount,
             winAmount,
-            resultMatrix: results,
-            payoutType,
+            resultMatrix,
+            payoutType: winAmount > 0 ? `WIN: ${winAmount}` : 'NO WIN',
           });
         }
       }
     } catch (error) {
       console.error('Error logging spin:', error);
+      // Still complete the spin even if logging fails
       onSpinComplete({
         betAmount,
         winAmount,
-        resultMatrix: results,
-        payoutType,
+        resultMatrix,
+        payoutType: winAmount > 0 ? `WIN: ${winAmount}` : 'NO WIN',
       });
     }
-
-    setIsSpinning(false);
   };
 
   return (
@@ -108,36 +165,45 @@ export default function SlotMachine({
       {/* Slot Machine Cabinet */}
       <div className="bg-gradient-to-b from-slate-700 to-slate-900 rounded-xl p-8 shadow-2xl border-4 border-slate-600">
         {/* Display */}
-        <div className="bg-black rounded-lg p-6 mb-8 border-2 border-slate-500">
+        <div className="bg-black rounded-lg p-6 mb-8 border-4 border-yellow-600 shadow-lg shadow-yellow-600/50">
           <div className="flex gap-4 justify-center mb-6">
             {reels.map((reel, idx) => (
               <div
                 key={idx}
-                className={`
-                  w-24 h-32 bg-gradient-to-b from-slate-800 to-slate-900
-                  border-2 border-slate-600 rounded-lg
+                ref={(el) => (reelRefs.current[idx] = el)}
+                className="
+                  w-24 h-32 bg-gradient-to-b from-slate-900 to-black
+                  border-4 border-yellow-500 rounded-lg
                   flex items-center justify-center
-                  text-3xl font-bold text-white
-                  transition-all duration-300
-                  ${reel.spinning ? 'animate-pulse' : ''}
-                `}
+                  text-5xl font-bold
+                  overflow-hidden
+                  relative
+                  shadow-inner
+                "
               >
-                {reel.spinning ? (
-                  <div className="animate-spin text-2xl">⟳</div>
-                ) : (
-                  <span className="text-center">{reel.result}</span>
-                )}
+                <div
+                  className="transition-transform duration-100 ease-out"
+                  style={{
+                    transform: `translateY(${-reel.position * 100}%)`,
+                  }}
+                >
+                  {[...SYMBOLS, ...SYMBOLS].map((symbol, i) => (
+                    <div key={i} className="h-32 flex items-center justify-center">
+                      {symbol}
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
 
           {/* Result Display */}
           {lastResult && (
-            <div className="text-center mb-4">
-              <p className={`text-xl font-bold uppercase tracking-wider ${
-                lastResult.includes('WIN') ? 'text-green-400' : 'text-slate-400'
+            <div className="text-center">
+              <p className={`text-2xl font-bold uppercase tracking-wider ${
+                lastWin > 0 ? 'text-green-400 animate-pulse' : 'text-slate-400'
               }`}>
-                {lastResult}
+                {lastWin > 0 ? `🎉 WIN! ${lastWin} 🎉` : 'NO MATCH'}
               </p>
             </div>
           )}
@@ -145,40 +211,48 @@ export default function SlotMachine({
 
         {/* Bet Controls */}
         <div className="bg-slate-800/50 rounded-lg p-6 mb-6 border border-slate-600/50">
-          <div className="flex items-center justify-between mb-4">
-            <label className="text-slate-300 font-semibold uppercase text-sm tracking-wider">
-              Bet Amount
-            </label>
-            <span className="text-cyan-400 font-bold text-lg">{betAmount}</span>
-          </div>
-
-          <input
-            type="range"
-            min="10"
-            max={Math.min(playerCredits, 500)}
-            step="10"
-            value={betAmount}
-            onChange={(e) => setBetAmount(parseInt(e.target.value))}
-            disabled={isSpinning}
-            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-          />
-
-          <div className="flex justify-between text-xs text-slate-400 mt-2">
-            <span>Min: 10</span>
-            <span>Max: {Math.min(playerCredits, 500)}</span>
+          <label className="text-slate-300 font-semibold uppercase text-sm tracking-wider mb-3 block">
+            Bet Amount
+          </label>
+          <div className="flex gap-3">
+            <Input
+              type="number"
+              value={betAmount}
+              onChange={(e) => setBetAmount(e.target.value)}
+              min="1"
+              max={playerCredits}
+              disabled={isSpinning}
+              className="
+                bg-slate-900/50 border-slate-600/50 text-white
+                placeholder:text-slate-500 focus:border-cyan-500
+                focus:ring-cyan-500/20 rounded-lg text-lg font-bold
+              "
+              placeholder="Enter bet"
+            />
+            <div className="text-right">
+              <p className="text-xs text-slate-400 uppercase">Max</p>
+              <p className="text-lg font-bold text-cyan-400">{playerCredits}</p>
+            </div>
           </div>
         </div>
 
-        {/* Credits Display */}
-        <div className="bg-gradient-to-r from-slate-800 to-slate-900 rounded-lg p-4 mb-6 border border-slate-600/50">
-          <div className="flex justify-between items-center">
-            <span className="text-slate-300 uppercase text-sm font-semibold tracking-wider">
-              Your Credits
-            </span>
-            <span className="text-2xl font-bold text-cyan-400">
-              {playerCredits}
-            </span>
-          </div>
+        {/* Quick Bet Buttons */}
+        <div className="grid grid-cols-4 gap-2 mb-6">
+          {[10, 25, 50, 100].map((amount) => (
+            <button
+              key={amount}
+              onClick={() => setBetAmount(Math.min(amount, playerCredits).toString())}
+              disabled={isSpinning || playerCredits < amount}
+              className="
+                bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800
+                disabled:text-slate-500 text-white font-semibold
+                py-2 px-3 rounded-lg transition-all
+                text-sm uppercase tracking-wider
+              "
+            >
+              {amount}
+            </button>
+          ))}
         </div>
 
         {/* Spin Button */}
@@ -186,13 +260,13 @@ export default function SlotMachine({
           onClick={spinReels}
           disabled={!canSpin}
           className="
-            w-full py-4 text-lg font-bold
-            bg-gradient-to-r from-cyan-500 to-blue-500
-            hover:from-cyan-400 hover:to-blue-400
+            w-full py-4 text-xl font-bold
+            bg-gradient-to-r from-yellow-500 to-yellow-600
+            hover:from-yellow-400 hover:to-yellow-500
             disabled:from-slate-600 disabled:to-slate-700
             disabled:cursor-not-allowed
-            text-white
-            shadow-lg shadow-cyan-500/50
+            text-black
+            shadow-lg shadow-yellow-500/50
             transition-all duration-300
             transform hover:scale-105 active:scale-95
             rounded-lg uppercase tracking-wider
@@ -202,9 +276,19 @@ export default function SlotMachine({
         </Button>
 
         {/* Info */}
-        <p className="text-center text-xs text-slate-500 mt-6 uppercase tracking-widest">
-          Match 3 symbols to win
-        </p>
+        <div className="mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-600/50">
+          <p className="text-xs text-slate-400 text-center uppercase tracking-widest mb-3">
+            Winning Combinations
+          </p>
+          <div className="grid grid-cols-2 gap-2 text-xs text-slate-300">
+            <div>🍒🍒🍒 = 50</div>
+            <div>🔔🔔🔔 = 100</div>
+            <div>🍀🍀🍀 = 150</div>
+            <div>💎💎💎 = 300</div>
+            <div>7️⃣7️⃣7️⃣ = 500</div>
+            <div>🎰🎰🎰 = 200</div>
+          </div>
+        </div>
       </div>
     </div>
   );

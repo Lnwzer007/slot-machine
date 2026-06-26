@@ -124,7 +124,7 @@ function doPost(e) {
       response.setContent(JSON.stringify({ success: false, message: 'Invalid username or password.' }));
       return response;
     } else if (action === 'logSpin') {
-      const { playerId, betAmount, winAmount, resultMatrix, payoutType } = requestBody;
+      const { playerId, betAmount, winAmount, resultMatrix, payoutType, timestamp } = requestBody;
 
       if (!playerId || betAmount === undefined || winAmount === undefined || !resultMatrix || !payoutType) {
         throw new Error('Missing required parameters for logSpin.');
