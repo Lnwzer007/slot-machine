@@ -92,7 +92,38 @@ function doPost(e) {
     const requestBody = JSON.parse(e.postData.contents);
     const action = requestBody.action;
 
-    if (action === 'logSpin') {
+    if (action === 'authenticate') {
+      const { username, password } = requestBody;
+      if (!username || !password) {
+        throw new Error('Username and password are required.');
+      }
+      const playerSheet = getSheetByName(PLAYER_DATA_SHEET_NAME);
+      if (!playerSheet) {
+        throw new Error('Player_Data sheet not found.');
+      }
+      const data = playerSheet.getDataRange().getValues();
+      const headers = data[0];
+      let usernameIndex = -1;
+      let passwordIndex = -1;
+
+      for (let j = 0; j < headers.length; j++) {
+        if (headers[j] === 'Username') usernameIndex = j;
+        if (headers[j] === 'Password') passwordIndex = j;
+      }
+
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][usernameIndex] === username && data[i][passwordIndex] === password) {
+          const playerData = {};
+          for (let j = 0; j < headers.length; j++) {
+            playerData[headers[j]] = data[i][j];
+          }
+          response.setContent(JSON.stringify({ success: true, playerData: playerData }));
+          return response;
+        }
+      }
+      response.setContent(JSON.stringify({ success: false, message: 'Invalid username or password.' }));
+      return response;
+    } else if (action === 'logSpin') {
       const { playerId, betAmount, winAmount, resultMatrix, payoutType } = requestBody;
 
       if (!playerId || betAmount === undefined || winAmount === undefined || !resultMatrix || !payoutType) {
